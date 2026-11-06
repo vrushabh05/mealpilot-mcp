@@ -1,125 +1,77 @@
-# MealPilot (MCP) — Python LLM Tool Server for Recipe Discovery
+# MealPilot MCP
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](#license)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)]()
 [![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-Server-orange)]()
 
-Turn a public recipe API (TheMealDB) into **typed tools for LLMs** via the **Model Context Protocol (MCP)**.  
-Supports search by name, filter by ingredient, fetch meal details, and a random meal endpoint — all with **Pydantic** validation, **timeouts**, **result limits**, and **structured logging**.
+A Model Context Protocol (MCP) server that turns the public [TheMealDB](https://www.themealdb.com/api.php) recipe API into four typed tools an LLM agent can call: search meals by name, filter by ingredient, fetch full recipe details, and get a random meal.
 
-> Demo (optional): add a GIF or video here — `docs/demo.gif`
-
----
-
-## ✨ Features
-- **MCP server** exposing **4 agent tools** for reliable LLM function-calling
-- **Contract-first** data models using **Pydantic** / JSON Schema
-- **Resilient I/O**: timeouts, result caps, structured stderr logging
-- **Minimal deps**: `requests`, `pydantic`
-- Works with **`mcp dev`** for quick local bring-up
-
----
-
-## 🚀 Quickstart
-
-```bash
-# 1) Clone or download
-git clone https://github.com/vrushabh05/mealpilot-mcp.git
-cd mealpilot-mcp
-
-# 2) (Optional) Create a virtualenv
-python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
-
-# 3) Install dependencies
-pip install -r requirements.txt
-
-# 4) Run the server
-python meals_server.py
-
-# 5) Dev with MCP (if installed)
-mcp dev
+```mermaid
+flowchart LR
+    A[LLM client<br/>Claude, MCP Inspector] -->|tool call| B[MealPilot MCP server<br/>FastMCP]
+    B -->|validated args<br/>15 s timeout| C[(TheMealDB API)]
+    C -->|JSON| B
+    B -->|Pydantic models<br/>capped to 25 results| A
 ```
 
-> If you don't have MCP CLI: https://github.com/modelcontextprotocol
+## Tools
 
----
+| Tool | Arguments | Returns |
+|---|---|---|
+| `search_meals_by_name` | `query`, `limit` (1-25, default 5) | List of `MealCard` |
+| `meals_by_ingredient` | `ingredient`, `limit` (1-25, default 12) | List of `MealCard` |
+| `meal_details` | `id` | `MealDetails` |
+| `random_meal` | none | `MealDetails` |
 
-## 🧰 Tools Exposed (MCP)
-- `search_by_name(query: str)` → list of **MealCard**
-- `filter_by_ingredient(ingredient: str)` → list of **MealCard**
-- `meal_details(id: str)` → **MealDetails**
-- `random_meal()` → **MealDetails**
-
-<details>
-<summary><b>Data Models (Pydantic)</b></summary>
+## Data models
 
 ```python
-class IngredientMeasure(BaseModel):
-    ingredient: str
-    measure: str
-
 class MealCard(BaseModel):
     id: str
     name: str
-    category: Optional[str] = None
-    area: Optional[str] = None
-    thumbnail: Optional[str] = None
+    area: Optional[str]
+    category: Optional[str]
+    thumb: Optional[str]
 
-class MealDetails(MealCard):
-    instructions: Optional[str] = None
-    tags: List[str] = []
-    youtube: Optional[str] = None
-    source: Optional[str] = None
-    ingredients: List[IngredientMeasure] = []
-```
-</details>
+class IngredientMeasure(BaseModel):
+    name: str
+    measure: Optional[str]
 
-<details>
-<summary><b>Server Settings</b></summary>
-
-- `TIMEOUT = 15` seconds
-- `MAX_LIMIT = 25` results per tool by default
-- Structured logging to `stderr` (JSON or key-value style)
-</details>
-
----
-
-## 📦 Project Structure (suggested)
-```
-.
-├── meals_server.py
-├── requirements.txt
-├── README.md
-├── LICENSE
-├── .gitignore
-└── docs/
-    └── demo.gif   # (optional)
+class MealDetails(BaseModel):
+    id: str
+    name: str
+    category: Optional[str]
+    area: Optional[str]
+    instructions: Optional[str]
+    image: Optional[str]
+    source: Optional[str]
+    youtube: Optional[str]
+    ingredients: List[IngredientMeasure]
 ```
 
----
+## Design choices
 
-## 🧪 Example Usage (pseudo)
-```json
-{
-  "tool": "search_by_name",
-  "params": {"query": "pasta"},
-  "timeout": 15000
-}
+- **Typed contracts:** every tool returns Pydantic models, so the agent gets a predictable schema.
+- **Bounded output:** results are capped at 25 per call to keep agent context small.
+- **Input hygiene:** empty queries return an empty list, and unknown meal IDs raise a clear error.
+- **Network safety:** a 15-second timeout on every request, with structured logging to stderr so it does not corrupt the MCP stdio channel.
+
+## Run it
+
+```bash
+git clone https://github.com/vrushabh05/mealpilot-mcp.git
+cd mealpilot-mcp
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+mcp dev meals_server.py        # opens the MCP Inspector to try the tools
 ```
-Returns a list of `MealCard` objects with id, name, category, area, thumbnail.
 
----
+To use it from an MCP client, point the client's config at `python meals_server.py`.
 
-## 🔧 Development Notes
-- Fail fast on network errors; wrap API calls with `requests` + `timeout`
-- Validate and coerce third‑party API payloads into Pydantic models
-- Cap list sizes (`MAX_LIMIT`) to keep calls predictable for LLM agents
+## Stack
 
----
+`Python` `MCP (FastMCP)` `Pydantic` `requests`
 
-## 📄 License
-Released under the **MIT License**. See [LICENSE](#license).
+## Acknowledgements
 
-## 🙌 Acknowledgements
-- TheMealDB — Public recipe API
-- Model Context Protocol — Agent tool standard
+Recipe data from TheMealDB.
